@@ -47,10 +47,14 @@ class Decoder(pl.LightningModule):
 
         target_words_ids = target_words_ids.T  # [trg len, batch size]
         seq_len = target_words_ids.shape[0]
+        # TODO: concat tensors instead of predefinining the shape of outputs
         outputs = torch.zeros(seq_len, batch_size, self.vocab_size).to(self.device)
-        # First token
-        # TODO: if target_words_ids is not provided, use <startoftext> token
-        input = target_words_ids[0,:]
+        # the first token is always <startoftext>
+        if target_words_ids is not None:
+            input = target_words_ids[0,:]
+        else:
+            input = torch.ones(batch_size, dtype=torch.int32) * 49406
+
 
         for t in range(1, seq_len):
             #insert input token embedding, previous hidden and previous cell states
@@ -68,7 +72,10 @@ class Decoder(pl.LightningModule):
 
             #if teacher forcing, use actual next token as next input
             #if not, use predicted token
-            input = target_words_ids[t] if teacher_force else top1
+            if target_words_ids is not None and teacher_force:
+                input = target_words_ids[t]
+            else:
+                input = top1
 
         return outputs
 
@@ -107,6 +114,7 @@ class Seq2SeqDecoder(pl.LightningModule):
             self(imgs, texts)
 
         loss = F.mse_loss(pred_text_embeds, true_text_embeds)
+        self.log("train/mse_loss", loss)
         return loss
 
     def configure_optimizers(self):
