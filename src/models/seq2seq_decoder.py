@@ -29,7 +29,7 @@ class StepDecoder(nn.Module):
 
         prediction = self.fc_out(output.squeeze(0))
 
-        return prediction
+        return prediction, hn, cn
 
 class Decoder(pl.LightningModule):
     def __init__(self, word_embed_dim, vocab_size, hid_dim, n_layers, dropout):
@@ -41,25 +41,23 @@ class Decoder(pl.LightningModule):
     def forward(self, img_embed, target_words_ids=None, teacher_forcing_ratio = 1.0):
         #TODO: use clip img embeds for h0 or c0?
         batch_size = img_embed.shape[0]
-        h0 = torch.zeros(self.step_decoder.n_layers, batch_size,
-                         self.step_decoder.hid_dim).to(self.device)
-        c0 = img_embed.unsqueeze(0).repeat(self.step_decoder.n_layers, 1, 1)
+        h = torch.zeros(self.step_decoder.n_layers, batch_size,
+                         self.step_decoder.hid_dim).to(img_embed)
+        c = img_embed.unsqueeze(0).repeat(self.step_decoder.n_layers, 1, 1)
 
-        target_words_ids = target_words_ids.T  # [trg len, batch size]
-        seq_len = target_words_ids.shape[0]
+        # TODO: hardcoded 4 now
+        seq_len = 77#target_words_ids.shape[0]
         # TODO: concat tensors instead of predefinining the shape of outputs
-        outputs = torch.zeros(seq_len, batch_size, self.vocab_size).to(self.device)
+        outputs = torch.zeros(seq_len, batch_size, self.vocab_size).to(img_embed)
         # the first token is always <startoftext>
+        input = torch.ones(batch_size).to(device=self.device, dtype=torch.int) * 49406
         if target_words_ids is not None:
-            input = target_words_ids[0,:]
-        else:
-            input = torch.ones(batch_size, dtype=torch.int32) * 49406
-
+            target_words_ids = target_words_ids.T  # [trg len, batch size]
 
         for t in range(1, seq_len):
             #insert input token embedding, previous hidden and previous cell states
             #receive output tensor (predictions) and new hidden and cell states
-            output = self.step_decoder(input, h0, c0)
+            output, h, c = self.step_decoder(input, h, c)
 
             #place predictions in a tensor holding predictions for each token
             outputs[t] = output
@@ -97,14 +95,18 @@ class Seq2SeqDecoder(pl.LightningModule):
         preds = self.decoder(img_embeds, target_words_ids)
         # shape: (seq_len, batch_size)
         pred_words_ids = torch.argmax(preds, 2)
+        # Hardcode the <startoftext> token into the outputs
+        pred_words_ids[0, :] = 49406
+        #pred_words_ids[10, 0] = 49407
         # Trim the words after <endoftext> token (id = 49407)
         eot_idxs = torch.argmax((pred_words_ids == 49407).to(dtype=torch.int32), 0)
         for j in range(pred_words_ids.shape[1]):
-            pred_words_ids[eot_idxs[j] ,j] = 0
+            pred_words_ids[eot_idxs[j] + 1:, j] = 0
 
         pred_words_ids = pred_words_ids.T
         pred_text_embeds = self.clip_model.encode_text(pred_words_ids)
-        true_text_embeds = self.clip_model.encode_text(target_words_ids)
+        true_text_embeds = self.clip_model.encode_text(target_words_ids) \
+            if target_words_ids is not None else None
         return pred_words_ids, pred_text_embeds, true_text_embeds
 
     def training_step(self, batch, batch_idx):
