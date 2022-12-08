@@ -81,6 +81,8 @@ class Seq2SeqDecoder(pl.LightningModule):
     def __init__(self, clip_model):
         super().__init__()
         self.clip_model = clip_model
+        # for param in clip_model.parameters():
+        #     param.requires_grad = False
 
         self.decoder = Decoder(vocab_size=clip_model.vocab_size,
                         word_embed_dim=128,
@@ -119,5 +121,14 @@ class Seq2SeqDecoder(pl.LightningModule):
         self.log("train/mse_loss", loss)
         return loss
 
+    def validation_step(self, batch, batch_idx):
+        imgs, texts = batch
+
+        pred_words_ids, pred_text_embeds, true_text_embeds = \
+            self(imgs, texts)
+
+        loss = F.mse_loss(pred_text_embeds, true_text_embeds)
+        self.log("val/mse_loss", loss)
+
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=0.001)
+        return torch.optim.Adam(self.decoder.parameters(), lr=0.001)
