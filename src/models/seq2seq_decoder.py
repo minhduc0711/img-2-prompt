@@ -13,7 +13,8 @@ class StepDecoder(nn.Module):
         self.n_layers = n_layers
 
         word_embed_dim = 768
-        self.rnn = nn.LSTM(word_embed_dim, hid_dim, n_layers, dropout = dropout)
+        self.rnn = nn.LSTM(word_embed_dim, hid_dim, n_layers)
+            #, dropout = dropout)
         # self.embedding = nn.Embedding(output_dim, word_embed_dim)
         self.bert_model = bert_model
         self.fc_out = nn.Linear(hid_dim, output_dim)
@@ -45,7 +46,7 @@ class Decoder(pl.LightningModule):
         self.step_decoder = StepDecoder(
             bert_model, vocab_size, hid_dim, n_layers, dropout)
 
-    def forward(self, img_embed, target_words_ids=None, 
+    def forward(self, img_embed, target_words_ids=None,
                 target_bert_tokens=None,
                 teacher_forcing_ratio = 1.0):
         #TODO: use clip img embeds for h0 or c0?
@@ -85,6 +86,7 @@ class Decoder(pl.LightningModule):
             else:
                 input = top1
             bert_tokens_t = target_bert_tokens[:, t]
+        # print(outputs)
 
         return outputs
 
@@ -97,8 +99,8 @@ class Seq2SeqDecoder(pl.LightningModule):
 
         self.decoder = Decoder(vocab_size=clip_model.vocab_size,
                         bert_model=bert_model,
-                        hid_dim=1024,
-                        n_layers=5,
+                        hid_dim=512,
+                        n_layers=1,
                         dropout=0.5)
 
     def forward(self, imgs, target_words_ids=None,
@@ -108,20 +110,25 @@ class Seq2SeqDecoder(pl.LightningModule):
         # shape: (seq_len, batch_size, self.vocab_size)
         preds = self.decoder(img_embeds, target_words_ids,
                 target_bert_tokens)
+        print("preds", preds)
         # shape: (seq_len, batch_size)
         pred_words_ids = torch.argmax(preds, 2)
         # Hardcode the <startoftext> token into the outputs
         pred_words_ids[0, :] = 49406
         #pred_words_ids[10, 0] = 49407
         # Trim the words after <endoftext> token (id = 49407)
-        eot_idxs = torch.argmax((pred_words_ids == 49407).to(dtype=torch.int32), 0)
-        for j in range(pred_words_ids.shape[1]):
-            pred_words_ids[eot_idxs[j] + 1:, j] = 0
+        eot_idxs = torch.where(pred_words_ids == 49407)
+        for seq_idx, eot_idx in zip(*eot_idxs):
+            pred_words_ids[seq_idx, eot_idx+1 :] = 0
 
         pred_words_ids = pred_words_ids.T
+        print('pred_words_ids', pred_words_ids)
+        print('pred_words_ids.shape', pred_words_ids.shape)
         pred_text_embeds = self.clip_model.encode_text(pred_words_ids)
         true_text_embeds = self.clip_model.encode_text(target_words_ids) \
             if target_words_ids is not None else None
+        # print(pred_text_embeds)
+        # print(true_text_embeds)
         return pred_words_ids, pred_text_embeds, true_text_embeds
 
     def training_step(self, batch, batch_idx):
@@ -136,7 +143,7 @@ class Seq2SeqDecoder(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         imgs, target_clip_tokens, target_bert_tokens = batch
-        
+
         pred_words_ids, pred_text_embeds, true_text_embeds = \
                 self(imgs, target_clip_tokens, target_bert_tokens)
 
@@ -144,4 +151,4 @@ class Seq2SeqDecoder(pl.LightningModule):
         self.log("val/mse_loss", loss)
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.decoder.parameters(), lr=0.001)
+        return torch.optim.Adam(self.decoder.parameters(), lr=0.1)

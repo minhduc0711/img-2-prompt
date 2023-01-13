@@ -7,7 +7,7 @@ import torch
 
 class DiffusionDBDataset(Dataset):
     def __init__(self, img_transform=None,
-                 bert_tokenizer=None,                
+                 bert_tokenizer=None,
                  subset_name="large_first_50k"):
        self.img_transform = img_transform
        self.bert_tokenizer = bert_tokenizer

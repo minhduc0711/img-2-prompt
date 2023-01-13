@@ -1,7 +1,7 @@
 import pytorch_lightning as pl
 from .diffusion_db import DiffusionDBDataset
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
 class DiffusionDBModule(pl.LightningDataModule):
     def __init__(self, batch_size: int = 32,
@@ -19,6 +19,10 @@ class DiffusionDBModule(pl.LightningDataModule):
                 bert_tokenizer=self.bert_tokenizer,
                 img_transform=self.img_transform)
         self.diffusion_db_train, self.diffusion_db_valid, self.diffusion_db_test = torch.utils.data.random_split(diffusion_db_full, [0.7, 0.1, 0.2], generator=torch.Generator().manual_seed(12))
+
+        # TODO: overfit to debug
+        self.diffusion_db_train = Subset(self.diffusion_db_train, torch.arange(10))
+        self.diffusion_db_valid = self.diffusion_db_train
 
     def train_dataloader(self):
         return DataLoader(self.diffusion_db_train, batch_size=self.batch_size)
