@@ -12,6 +12,7 @@ class StepDecoder(nn.Module):
         self.hid_dim = hid_dim
         self.n_layers = n_layers
 
+
         word_embed_dim = 768
         self.rnn = nn.LSTM(word_embed_dim, hid_dim, n_layers)
             #, dropout = dropout)
@@ -29,6 +30,8 @@ class StepDecoder(nn.Module):
 
         bert_tokens_t = bert_tokens_t.unsqueeze(0)
         word_embeds = self.bert_model(bert_tokens_t)[0]
+        # x = self.fc_in(word_embeds)
+        # print(x.shape)
         # print(word_embeds.shape)
         # word_embeds = self.dropout(self.embedding(input))
 
@@ -45,6 +48,7 @@ class Decoder(pl.LightningModule):
         self.vocab_size = vocab_size
         self.step_decoder = StepDecoder(
             bert_model, vocab_size, hid_dim, n_layers, dropout)
+        self.fc_img = nn.Linear(512, hid_dim)
 
     def forward(self, img_embed, target_words_ids=None,
                 target_bert_tokens=None,
@@ -53,6 +57,7 @@ class Decoder(pl.LightningModule):
         batch_size = img_embed.shape[0]
         h = torch.zeros(self.step_decoder.n_layers, batch_size,
                          self.step_decoder.hid_dim).to(img_embed)
+        img_embed = self.fc_img(img_embed)
         c = img_embed.unsqueeze(0).repeat(self.step_decoder.n_layers, 1, 1)
 
         # TODO: hardcoded 4 now
@@ -99,8 +104,8 @@ class Seq2SeqDecoder(pl.LightningModule):
 
         self.decoder = Decoder(vocab_size=clip_model.vocab_size,
                         bert_model=bert_model,
-                        hid_dim=512,
-                        n_layers=1,
+                        hid_dim=1024,
+                        n_layers=10,
                         dropout=0.5)
 
     def forward(self, imgs, target_words_ids=None,
@@ -122,7 +127,6 @@ class Seq2SeqDecoder(pl.LightningModule):
             pred_words_ids[seq_idx, eot_idx+1 :] = 0
 
         pred_words_ids = pred_words_ids.T
-        print("pred_words_ids.shape", pred_words_ids.shape)
 
         # pred_text_embeds = self.clip_model.encode_text(pred_words_ids)
 
@@ -139,7 +143,6 @@ class Seq2SeqDecoder(pl.LightningModule):
         # x.shape = [batch_size, n_ctx, transformer.width]
         # take features from the eot embedding (eot_token is the highest number in each sequence)
         x = x[torch.arange(x.shape[0]), pred_words_ids.argmax(dim=-1)] @ self.clip_model.text_projection
-        print("x.shape", x.shape)
         pred_text_embeds = x
 
         true_text_embeds = self.clip_model.encode_text(target_words_ids) \

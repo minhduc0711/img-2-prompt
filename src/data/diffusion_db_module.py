@@ -21,8 +21,8 @@ class DiffusionDBModule(pl.LightningDataModule):
         self.diffusion_db_train, self.diffusion_db_valid, self.diffusion_db_test = torch.utils.data.random_split(diffusion_db_full, [0.7, 0.1, 0.2], generator=torch.Generator().manual_seed(12))
 
         # TODO: overfit to debug
-        self.diffusion_db_train = Subset(self.diffusion_db_train, torch.arange(10))
-        self.diffusion_db_valid = self.diffusion_db_train
+        #self.diffusion_db_train = Subset(self.diffusion_db_train, torch.arange(10))
+        #self.diffusion_db_valid = self.diffusion_db_train
 
     def train_dataloader(self):
         return DataLoader(self.diffusion_db_train, batch_size=self.batch_size)
