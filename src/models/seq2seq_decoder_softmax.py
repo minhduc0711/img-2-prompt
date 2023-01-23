@@ -110,61 +110,33 @@ class Seq2SeqDecoder(pl.LightningModule):
         # shape: (seq_len, batch_size, self.vocab_size)
         preds = self.decoder(img_embeds, target_words_ids,
                 target_bert_tokens)
+        return preds
 
-        # shape: (seq_len, batch_size)
-        pred_words_ids = torch.argmax(preds, 2)
-        # Hardcode the <startoftext> token into the outputs
-        pred_words_ids[0, :] = 49406
-        #pred_words_ids[10, 0] = 49407
-        # Trim the words after <endoftext> token (id = 49407)
-        eot_idxs = torch.where(pred_words_ids == 49407)
-        for seq_idx, eot_idx in zip(*eot_idxs):
-            pred_words_ids[seq_idx, eot_idx+1 :] = 0
-
-        pred_words_ids = pred_words_ids.T
-        print("pred_words_ids.shape", pred_words_ids.shape)
-
-        # pred_text_embeds = self.clip_model.encode_text(pred_words_ids)
-
-        # Giulio approach: feed probas directly into CLIP's word embedding layer
-        # instead of token IDs
-        x = preds.permute(1, 0, 2) @ self.clip_model.token_embedding.weight
-
-        x = x + self.clip_model.positional_embedding.type(self.clip_model.dtype)
-        x = x.permute(1, 0, 2)  # NLD -> LND
-        x = self.clip_model.transformer(x)
-        x = x.permute(1, 0, 2)  # LND -> NLD
-        x = self.clip_model.ln_final(x).type(self.clip_model.dtype)
-
-        # x.shape = [batch_size, n_ctx, transformer.width]
-        # take features from the eot embedding (eot_token is the highest number in each sequence)
-        x = x[torch.arange(x.shape[0]), pred_words_ids.argmax(dim=-1)] @ self.clip_model.text_projection
-        print("x.shape", x.shape)
-        pred_text_embeds = x
-
-        true_text_embeds = self.clip_model.encode_text(target_words_ids) \
-            if target_words_ids is not None else None
-
-        return pred_words_ids, pred_text_embeds, true_text_embeds
 
     def training_step(self, batch, batch_idx):
         imgs, target_clip_tokens, target_bert_tokens = batch
 
-        pred_words_ids, pred_text_embeds, true_text_embeds = \
-            self(imgs, target_clip_tokens, target_bert_tokens)
+        preds = self(imgs, target_clip_tokens, target_bert_tokens)
+        # shape: (seq_len, batch_size, self.vocab_size)
+        preds = preds[1:, :, :]  # ignore the <startoftext> token
+        preds = torch.permute(preds, (1, 2, 0))
+        targets = target_clip_tokens[:, 1:].long()
 
-        loss = F.mse_loss(pred_text_embeds, true_text_embeds)
-        self.log("train/mse_loss", loss)
+        loss = F.cross_entropy(preds, targets)
+        self.log("train/CE_loss", loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
         imgs, target_clip_tokens, target_bert_tokens = batch
 
-        pred_words_ids, pred_text_embeds, true_text_embeds = \
-                self(imgs, target_clip_tokens, target_bert_tokens)
+        preds = self(imgs, target_clip_tokens, target_bert_tokens)
+        # shape: (seq_len, batch_size, self.vocab_size)
+        preds = preds[1:, :, :]  # ignore the <startoftext> token
+        preds = torch.permute(preds, (1, 2, 0))
+        targets = target_clip_tokens[:, 1:].long()
 
-        loss = F.mse_loss(pred_text_embeds, true_text_embeds)
-        self.log("val/mse_loss", loss)
+        loss = F.cross_entropy(preds, targets)
+        self.log("val/CE_loss", loss)
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.decoder.parameters(), lr=0.001)
