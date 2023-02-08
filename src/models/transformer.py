@@ -85,13 +85,13 @@ class TransformerImg2Prompt(pl.LightningModule):
 
     def generate_square_subsequent_mask(self, sz: int) -> Tensor:
         """Generates an upper-triangular matrix of -inf, with zeros on diag."""
-        return torch.triu(torch.ones(sz, sz) * float('-inf'), diagonal=1)
+        return torch.triu(torch.ones(sz, sz) * float('-inf'), diagonal=1).cuda()
 
     def construct_input_seq(self, img, target_bert_tokens=None):
         if target_bert_tokens is not None:
             bert_embeds = self.bert_model(target_bert_tokens[:, :-1])[0]
         else:
-            bert_embeds = torch.Tensor()  # empty
+            bert_embeds = torch.Tensor().to(img)  # empty
         img_embed = self.clip_model.encode_image(img)
         img_embed = self.fc_img(img_embed)
 
@@ -106,7 +106,7 @@ class TransformerImg2Prompt(pl.LightningModule):
         return self.transformer(input_seq, src_mask)
 
     def training_step(self, batch, batch_idx):
-        imgs, target_clip_tokens, target_bert_tokens = batch
+        imgs, target_bert_tokens = batch["img"], batch["bert_tokens"]
 
         input_seq = self.construct_input_seq(imgs, target_bert_tokens)
         # shape: (seq_len, batch_size, self.vocab_size)
@@ -122,7 +122,7 @@ class TransformerImg2Prompt(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        imgs, target_clip_tokens, target_bert_tokens = batch
+        imgs, target_bert_tokens = batch["img"], batch["bert_tokens"]
 
         input_seq = self.construct_input_seq(imgs, target_bert_tokens)
         # shape: (seq_len, batch_size, self.vocab_size)
@@ -137,9 +137,9 @@ class TransformerImg2Prompt(pl.LightningModule):
         loss = loss_vals.mean()
         self.log("val/CE_loss", loss)
 
-    # def predict_step(self, batch, batch_idx, dataloader_idx=0):
-    def predict(self, batch):
-        imgs, _, _ = batch
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+    # def predict(self, batch):
+        imgs = batch["img"]
         predictions = []
         for img in imgs:
             img = img.unsqueeze(0)

@@ -17,19 +17,20 @@ class DiffusionDBDataset(Dataset):
         return len(self.hf_dataset)
 
     def __getitem__(self, idx):
+        res = {"global_idx": idx}
         img = self.hf_dataset[idx]["image"]
 
         if self.img_transform:
             img = self.img_transform(img)
         else:
             img = pil_to_tensor(img)
-
+        res["img"] = img
         prompt = self.hf_dataset[idx]["prompt"]
         clip_tokens = clip.tokenize(prompt, truncate=True).squeeze()
-
+        res["clip_tokens"] = clip_tokens
         if self.bert_tokenizer is not None:
             bert_tokens = self.bert_tokenizer.encode(prompt,
                     padding="max_length", max_length=77, truncation=True)
-            return img, clip_tokens, torch.tensor(bert_tokens)
+            res["bert_tokens"] = torch.tensor(bert_tokens)
 
-        return img, clip_tokens
+        return res
