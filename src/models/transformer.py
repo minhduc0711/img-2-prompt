@@ -4,7 +4,6 @@ import math
 import torch
 from torch import nn, Tensor
 import torch.nn.functional as F
-from torch.optim.lr_scheduler import LambdaLR
 import pytorch_lightning as pl
 
 
@@ -69,8 +68,8 @@ class Transformer(nn.Module):
 class TransformerImg2Prompt(pl.LightningModule):
     def __init__(self, clip_model, bert_model, emsize: int, nhead: int, d_hid: int,
                  nlayers: int, dropout: float = 0.5,
-                 learning_rate=0.001,
-                 warm_up_step=500):
+                 learning_rate=5e-4,
+                 warm_up_step=4000):
         super().__init__()
         self.save_hyperparameters(ignore=["clip_model", "bert_model"])
 
@@ -160,32 +159,11 @@ class TransformerImg2Prompt(pl.LightningModule):
         return predictions
 
     def configure_optimizers(self):
-        def lr_foo(epoch):
-            if epoch < self.hparams.warm_up_step:
-                # warm up lr
-                lr_scale = 0.1 ** (self.hparams.warm_up_step - epoch)
-            else:
-                lr_scale = 0.95 ** epoch
-
-            return lr_scale
-
         train_layers = [self.transformer, self.fc_img]
         params = itertools.chain(*[layer.parameters() for layer in train_layers])
         optimizer = torch.optim.Adam(params, lr=self.hparams.learning_rate)
 
-        scheduler = LambdaLR(
-            optimizer,
-            lr_lambda=lr_foo
-        )
-
-        return [optimizer], [scheduler]
-        # scheduler = InverseSquareRootLR(optimizer, 500)
-        # opt = torch.optim.SGD(model.parameters(), lr=5.0)
-        # lr_sched = torch.optim.lr_scheduler.StepLR(opt, 1.0, gamma=0.95)
-        # return {
-        #     "optimizer": opt,
-        #     "lr_scheduler": lr_sched
-        # }
+        return optimizer
 
     def optimizer_step(
         self,
@@ -201,7 +179,7 @@ class TransformerImg2Prompt(pl.LightningModule):
         # update params
         optimizer.step(closure=optimizer_closure)
 
-        if self.trainer.global_step < 500:
-            lr_scale = min(1., float(self.trainer.global_step + 1) / 500.)
+        if self.trainer.global_step < self.hparams.warm_up_step:
+            lr_scale = min(1., float(self.trainer.global_step + 1) / float(self.hparams.warm_up_step))
             for pg in optimizer.param_groups:
                 pg['lr'] = lr_scale * self.hparams.learning_rate
