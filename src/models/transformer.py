@@ -84,7 +84,7 @@ class TransformerImg2Prompt(pl.LightningModule):
 
     def generate_square_subsequent_mask(self, sz: int) -> Tensor:
         """Generates an upper-triangular matrix of -inf, with zeros on diag."""
-        return torch.triu(torch.ones(sz, sz) * float('-inf'), diagonal=1).cuda()
+        return torch.triu(torch.ones(sz, sz) * float('-inf'), diagonal=1)
 
     def construct_input_seq(self, img, target_bert_tokens=None):
         if target_bert_tokens is not None:
@@ -101,7 +101,7 @@ class TransformerImg2Prompt(pl.LightningModule):
         return input_seq
 
     def forward(self, input_seq):
-        src_mask = self.generate_square_subsequent_mask(input_seq.shape[0])
+        src_mask = self.generate_square_subsequent_mask(input_seq.shape[0]).to(device=input_seq.device)
         return self.transformer(input_seq, src_mask)
 
     def training_step(self, batch, batch_idx):
